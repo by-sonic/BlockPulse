@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BlockPulse — мониторинг блокировок VPN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#06060b;--surface:#0d0d14;--surface2:#13131e;--elevated:#1a1a28;
+  --border:rgba(255,255,255,.06);--border-bright:rgba(255,255,255,.1);
+  --text:#dfe0eb;--text2:#6b6d80;--text3:#4a4c5e;
+  --cyan:#00d4ff;--cyan-dim:rgba(0,212,255,.12);--cyan-glow:rgba(0,212,255,.25);
+  --green:#00e878;--green-dim:rgba(0,232,120,.1);
+  --red:#ff4070;--red-dim:rgba(255,64,112,.1);
+  --amber:#ffa726;--amber-dim:rgba(255,167,38,.1);
+  --mono:'IBM Plex Mono',monospace;--sans:'Outfit',system-ui,sans-serif;
+  --radius:10px;
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;
+  background-image:
+    radial-gradient(ellipse 60% 40% at 50% 0%,rgba(0,212,255,.04),transparent),
+    linear-gradient(180deg,var(--bg) 0%,#080810 100%);
+}
+a{color:var(--cyan);text-decoration:none;transition:opacity .15s}
+a:hover{opacity:.8}
+
+.wrap{max-width:960px;margin:0 auto;padding:32px 20px 64px}
+
+/* header */
+.header{text-align:center;margin-bottom:40px;position:relative}
+.logo{font-family:var(--mono);font-size:32px;font-weight:600;letter-spacing:-1px;margin-bottom:6px}
+.logo span{color:var(--cyan);text-shadow:0 0 20px var(--cyan-glow)}
+.subtitle{color:var(--text2);font-size:14px;font-weight:400;letter-spacing:.2px}
+.live-dot{display:inline-block;width:7px;height:7px;background:var(--green);border-radius:50%;margin-right:6px;animation:pulse 2s ease infinite;vertical-align:middle}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,232,120,.4)}50%{box-shadow:0 0 0 8px rgba(0,232,120,0)}}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:28px}
+.stat{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px;text-align:center;position:relative;overflow:hidden;
+  transition:border-color .2s;
+}
+.stat:hover{border-color:var(--border-bright)}
+.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,.15),transparent)}
+.stat-val{font-family:var(--mono);font-size:24px;font-weight:600;color:var(--cyan);line-height:1}
+.stat-label{font-size:11px;color:var(--text3);margin-top:6px;text-transform:uppercase;letter-spacing:1.2px;font-weight:500}
+
+/* section card */
+.section{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  margin-bottom:20px;overflow:hidden;position:relative;
+}
+.section::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,212,255,.12),transparent)}
+.section-header{padding:18px 20px 0;display:flex;align-items:center;gap:10px}
+.section-title{font-size:15px;font-weight:600;letter-spacing:-.2px}
+.section-badge{font-family:var(--mono);font-size:10px;color:var(--text3);background:var(--surface2);padding:3px 8px;border-radius:5px;letter-spacing:.5px}
+
+/* pulse table */
+.pulse-wrap{overflow-x:auto;padding:14px 20px 20px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{
+  font-family:var(--mono);font-weight:500;font-size:11px;color:var(--text3);
+  text-transform:uppercase;letter-spacing:.8px;padding:10px 8px;
+  border-bottom:1px solid var(--border);text-align:center;white-space:nowrap;
+}
+thead th:first-child{text-align:left}
+tbody td{padding:12px 8px;border-bottom:1px solid var(--border);text-align:center;vertical-align:middle}
+tbody td:first-child{text-align:left}
+tbody tr:last-child td{border-bottom:none}
+tbody tr{transition:background .15s}
+tbody tr:hover{background:rgba(0,212,255,.02)}
+
+.region-name{font-weight:600;font-size:13px}
+.region-sources{font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:2px}
+
+.cell{display:inline-flex;flex-direction:column;align-items:center;gap:3px;min-width:56px}
+.cell-status{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:12px;font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.g{background:var(--green);box-shadow:0 0 8px var(--green-dim)}
+.dot.r{background:var(--red);box-shadow:0 0 8px var(--red-dim)}
+.dot.y{background:var(--amber);box-shadow:0 0 8px var(--amber-dim)}
+.dot.n{background:var(--text3);opacity:.5}
+.cell-ms{font-family:var(--mono);font-size:9px;color:var(--text3)}
+.cell-label{font-family:var(--mono);font-size:9px;color:var(--text3)}
+
+.empty{text-align:center;padding:48px 20px;color:var(--text3);font-size:14px}
+
+/* probe section */
+.probe-content{padding:14px 20px 20px}
+.probe-desc{font-size:13px;color:var(--text2);margin-bottom:14px;line-height:1.6}
+.cmd-block{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px;position:relative}
+.cmd-label{font-family:var(--mono);font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.cmd-text{font-family:var(--mono);font-size:12px;color:var(--green);word-break:break-all;line-height:1.5;user-select:all}
+.cmd-copy{
+  position:absolute;top:10px;right:10px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:5px;padding:4px 8px;font-family:var(--mono);font-size:10px;color:var(--text2);
+  cursor:pointer;transition:all .15s;
+}
+.cmd-copy:hover{color:var(--text);border-color:var(--border-bright)}
+
+/* footer */
+.footer{display:flex;justify-content:center;align-items:center;gap:16px;padding:20px;color:var(--text3);font-size:12px}
+.footer-sep{width:3px;height:3px;background:var(--text3);border-radius:50%;opacity:.5}
+.refresh-info{
+  text-align:center;margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--text3);
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+
+/* mobile */
+@media(max-width:640px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .stat-val{font-size:20px}
+  .wrap{padding:20px 12px 48px}
+  .logo{font-size:26px}
+  table{font-size:12px}
+}
+
+/* entry animations */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.stats,.section{animation:fadeUp .4s ease both}
+.section:nth-child(2){animation-delay:.05s}
+.section:nth-child(3){animation-delay:.1s}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="header">
+  <div class="logo">Block<span>Pulse</span></div>
+  <div class="subtitle"><span class="live-dot"></span>Crowdsourced мониторинг блокировок VPN-протоколов</div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="stat-val" id="s-probes">&mdash;</div><div class="stat-label">проверок / 24ч</div></div>
+  <div class="stat"><div class="stat-val" id="s-sources">&mdash;</div><div class="stat-label">источников</div></div>
+  <div class="stat"><div class="stat-val" id="s-regions">&mdash;</div><div class="stat-label">регионов</div></div>
+  <div class="stat"><div class="stat-val" id="s-total">&mdash;</div><div class="stat-label">всего проверок</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <div class="section-title">Карта блокировок</div>
+    <div class="section-badge" id="window-badge">1 час</div>
+  </div>
+  <div class="pulse-wrap" id="pulse-table"><div class="empty">Загрузка данных…</div></div>
+</div>
+
+<div class="section">
+  <div class="section-header">
+    <div class="section-title">Помоги собрать данные</div>
+  </div>
+  <div class="probe-content">
+    <div class="probe-desc">Запусти скрипт на своём устройстве — он проверит доступность VPN-протоколов из твоей сети и добавит результат на карту. Нужен только Python 3.8+, без зависимостей.</div>
+    <div class="cmd-block">
+      <div class="cmd-label">Linux / macOS</div>
+      <div class="cmd-text" id="cmd-unix"></div>
+      <button class="cmd-copy" onclick="copyCmd('cmd-unix')">copy</button>
+    </div>
+    <div class="cmd-block">
+      <div class="cmd-label">Windows PowerShell</div>
+      <div class="cmd-text" id="cmd-win"></div>
+      <button class="cmd-copy" onclick="copyCmd('cmd-win')">copy</button>
+    </div>
+  </div>
+</div>
+
+<div class="refresh-info">
+  <span class="live-dot" style="width:5px;height:5px"></span>
+  Обновление через <span id="countdown">60</span>с
+</div>
+
+<div class="footer">
+  <span>BlockPulse</span>
+  <span class="footer-sep"></span>
+  <span>open source</span>
+  <span class="footer-sep"></span>
+  <a href="" id="bot-link">Telegram Bot</a>
+</div>
+
+</div>
+<script>
+const API = location.origin;
+const PROTOS = ['vless-reality','xhttp-1','xhttp-2','xhttp-3','hysteria2'];
+const PROTO_HEAD = {'vless-reality':'VLESS Reality','xhttp-1':'XHTTP #1','xhttp-2':'XHTTP #2','xhttp-3':'XHTTP #3','hysteria2':'Hysteria2'};
+let countdown = 60;
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function cellHTML(data) {
+    if (!data || data.rate === null) return '<span class="cell"><span class="dot n"></span><span class="cell-label">—</span></span>';
+    const pct = Math.round(data.rate * 100);
+    const cls = pct >= 70 ? 'g' : pct >= 30 ? 'y' : 'r';
+    const label = pct >= 70 ? 'OK' : pct >= 30 ? 'нестаб' : 'блок';
+    const ms = data.avg_ms ? `<span class="cell-ms">${data.avg_ms}ms</span>` : '';
+    return `<span class="cell"><span class="cell-status"><span class="dot ${cls}"></span>${pct}%</span>${ms}</span>`;
+}
+
+function copyCmd(id) {
+    const text = document.getElementById(id).textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById(id).closest('.cmd-block').querySelector('.cmd-copy');
+        btn.textContent = '✓';
+        setTimeout(() => btn.textContent = 'copy', 1500);
+    });
+}
+
+async function loadPulse() {
+    try {
+        const r = await fetch(API + '/api/pulse?hours=1');
+        const d = await r.json();
+        const {pulse, stats} = d;
+
+        document.getElementById('s-probes').textContent = (stats.today || 0).toLocaleString();
+        document.getElementById('s-sources').textContent = stats.sources || 0;
+        document.getElementById('s-regions').textContent = stats.regions || 0;
+        document.getElementById('s-total').textContent = (stats.total_probes || 0).toLocaleString();
+
+        if (!pulse || !pulse.length) {
+            document.getElementById('pulse-table').innerHTML = '<div class="empty">Данных пока нет. Запусти probe первым!</div>';
+            return;
+        }
+
+        const byRegion = {};
+        pulse.forEach(row => {
+            const rg = row.region || '?';
+            if (!byRegion[rg]) byRegion[rg] = {sources: 0};
+            const rate = row.total ? row.ok / row.total : null;
+            byRegion[rg][row.protocol] = {rate, avg_ms: row.avg_ms, sources: row.sources};
+            byRegion[rg].sources = Math.max(byRegion[rg].sources, row.sources || 0);
+        });
+
+        let html = '<table><thead><tr><th>Регион</th>';
+        PROTOS.forEach(p => html += `<th>${PROTO_HEAD[p]||p}</th>`);
+        html += '</tr></thead><tbody>';
+
+        Object.keys(byRegion).sort().forEach(rgn => {
+            const data = byRegion[rgn];
+            html += `<tr><td><div class="region-name">${esc(rgn)}</div><div class="region-sources">${data.sources} ист.</div></td>`;
+            PROTOS.forEach(p => {
+                html += `<td>${cellHTML(data[p])}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('pulse-table').innerHTML = html;
+    } catch (e) {
+        console.error('loadPulse', e);
+        document.getElementById('pulse-table').innerHTML = '<div class="empty">Ошибка загрузки данных</div>';
+    }
+}
+
+const base = API;
+document.getElementById('cmd-unix').textContent = `curl -sL ${base}/probe.py | python3`;
+document.getElementById('cmd-win').textContent = `(irm ${base}/probe.py) | python`;
+
+loadPulse();
+setInterval(() => {
+    countdown--;
+    if (countdown <= 0) { loadPulse(); countdown = 60; }
+    document.getElementById('countdown').textContent = countdown;
+}, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>BlockPulse</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--border:#1e1e2e;
+  --cyan:#00e5ff;--purple:#7c3aed;--red:#ff3b5c;--green:#00e676;
+  --text:#e0e0e8;--text2:#8888a0;--mono:'JetBrains Mono',monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;overflow:hidden}
+body{
+  background-image:
+    linear-gradient(rgba(0,229,255,.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,229,255,.03) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+
+.app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+.screen{flex:1;overflow-y:auto;padding:16px 16px 8px;display:none;animation:fadeIn .25s ease}
+.screen.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* nav */
+.nav{display:flex;border-top:1px solid var(--border);background:var(--surface);padding:6px 0 env(safe-area-inset-bottom,4px)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;background:none;border:none;color:var(--text2);font-size:10px;font-family:var(--mono);cursor:pointer;transition:color .2s}
+.nav-btn.active{color:var(--cyan)}
+.nav-btn svg{width:22px;height:22px;fill:currentColor}
+
+/* cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;backdrop-filter:blur(12px);position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(0,229,255,.2),transparent)}
+.card-title{font-family:var(--mono);font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+
+/* info row */
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.info-item{background:var(--surface2);border-radius:8px;padding:10px}
+.info-label{font-size:10px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:1px}
+.info-value{font-family:var(--mono);font-size:14px;margin-top:4px;color:var(--text);word-break:break-all}
+
+/* scan button */
+.scan-btn{
+  width:100%;padding:16px;border:none;border-radius:12px;font-family:var(--mono);font-size:15px;font-weight:700;
+  color:#000;cursor:pointer;position:relative;overflow:hidden;letter-spacing:1px;
+  background:var(--cyan);box-shadow:0 0 30px rgba(0,229,255,.25);transition:all .2s;
+}
+.scan-btn:active{transform:scale(.97)}
+.scan-btn:disabled{opacity:.4;pointer-events:none}
+.scan-btn .glow{position:absolute;inset:-2px;border-radius:14px;background:linear-gradient(45deg,var(--cyan),var(--purple),var(--cyan));opacity:.5;filter:blur(12px);z-index:-1;animation:glowPulse 2s ease infinite}
+@keyframes glowPulse{0%,100%{opacity:.3}50%{opacity:.6}}
+
+/* scan line */
+.scanline{position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:0;animation:none;pointer-events:none}
+.scanning .scanline{opacity:1;animation:scanMove 1.5s linear infinite}
+@keyframes scanMove{from{top:0}to{top:100%}}
+
+/* protocol results */
+.proto-list{display:flex;flex-direction:column;gap:6px}
+.proto-row{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--surface2);
+  border-radius:8px;font-family:var(--mono);font-size:13px;animation:slideIn .3s ease;
+}
+@keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+.proto-name{flex:1;color:var(--text)}
+.proto-port{color:var(--text2);font-size:11px;min-width:52px;text-align:right}
+.proto-status{min-width:64px;text-align:right;font-weight:600}
+.proto-status.ok{color:var(--green)}
+.proto-status.blocked{color:var(--red)}
+.proto-status.timeout{color:var(--purple)}
+.proto-status.skip{color:var(--text2)}
+.spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin .6s linear infinite;margin-left:auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* summary */
+.summary{display:flex;gap:8px;margin-top:8px}
+.summary-item{flex:1;text-align:center;background:var(--surface2);border-radius:8px;padding:10px 6px}
+.summary-num{font-family:var(--mono);font-size:22px;font-weight:700}
+.summary-label{font-size:10px;color:var(--text2);margin-top:2px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px}
+
+/* map */
+.stats-bar{display:flex;gap:6px;margin-bottom:12px}
+.stat-chip{flex:1;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 4px}
+.stat-num{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--cyan)}
+.stat-label{font-size:9px;color:var(--text2);font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+.map-table{width:100%;border-collapse:separate;border-spacing:0;font-family:var(--mono);font-size:11px}
+.map-table th{color:var(--text2);font-weight:500;padding:8px 4px;text-align:center;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:1}
+.map-table th:first-child{text-align:left}
+.map-table td{padding:8px 4px;text-align:center;border-bottom:1px solid var(--border)}
+.map-table td:first-child{text-align:left;color:var(--text)}
+.cell-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px;vertical-align:middle}
+.cell-dot.g{background:var(--green);box-shadow:0 0 6px rgba(0,230,118,.4)}
+.cell-dot.y{background:#ffab00;box-shadow:0 0 6px rgba(255,171,0,.4)}
+.cell-dot.r{background:var(--red);box-shadow:0 0 6px rgba(255,59,92,.4)}
+.cell-dot.n{background:#444}
+.refresh-bar{font-family:var(--mono);font-size:10px;color:var(--text2);text-align:center;margin-top:10px}
+
+/* about */
+.about-section{margin-bottom:20px}
+.about-section h3{font-family:var(--mono);font-size:13px;color:var(--cyan);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+.about-section p,.about-section li{font-size:13px;color:var(--text2);line-height:1.6}
+.about-section ol{padding-left:20px}
+.about-section li{margin-bottom:6px}
+.about-section code{font-family:var(--mono);background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:12px;color:var(--cyan)}
+.badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);color:var(--text2);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- PROBE SCREEN -->
+  <div class="screen active" id="s-probe">
+    <div class="card" id="region-card">
+      <div class="scanline"></div>
+      <div class="card-title">Your Network</div>
+      <div class="info-grid">
+        <div class="info-item"><div class="info-label">Region</div><div class="info-value" id="v-region">—</div></div>
+        <div class="info-item"><div class="info-label">City</div><div class="info-value" id="v-city">—</div></div>
+        <div class="info-item"><div class="info-label">ISP</div><div class="info-value" id="v-isp">—</div></div>
+        <div class="info-item"><div class="info-label">IP</div><div class="info-value" id="v-ip">—</div></div>
+      </div>
+    </div>
+    <div id="probe-area">
+      <button class="scan-btn" id="btn-scan" disabled><span class="glow"></span>LOADING…</button>
+    </div>
+    <div id="results-area" style="display:none">
+      <div class="card">
+        <div class="card-title">Protocol Scan</div>
+        <div class="proto-list" id="proto-list"></div>
+      </div>
+      <div class="summary" id="summary" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- MAP SCREEN -->
+  <div class="screen" id="s-map">
+    <div class="stats-bar" id="map-stats"></div>
+    <div class="card" style="padding:0;overflow-x:auto">
+      <table class="map-table" id="map-table"><thead><tr><th>Region</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="refresh-bar" id="refresh-bar"></div>
+  </div>
+
+  <!-- ABOUT SCREEN -->
+  <div class="screen" id="s-about">
+    <div class="card">
+      <div class="card-title">BlockPulse</div>
+      <p style="font-size:14px;color:var(--text);margin-bottom:4px">VPN Protocol Monitor</p>
+      <span class="badge">v1.0 — Telegram Mini App</span>
+    </div>
+    <div class="about-section">
+      <h3>How It Works</h3>
+      <ol>
+        <li><strong>Detect</strong> — we identify your region and ISP via GeoIP</li>
+        <li><strong>Probe</strong> — your browser attempts TLS handshakes to VPN ports using <code>fetch()</code> timing analysis</li>
+        <li><strong>Analyze</strong> — a fast error (~&lt;300ms) means the port is blocked; a slow error (&gt;300ms) means TLS handshake happened (port reachable); a timeout means DPI filtering</li>
+        <li><strong>Aggregate</strong> — results are sent to the server and combined with other users' data to build a real-time reachability map</li>
+      </ol>
+    </div>
+    <div class="about-section">
+      <h3>Privacy</h3>
+      <p>Your IP address is used only for GeoIP lookup (region/city/ISP). No personal data is collected or stored. All probe results are anonymized and aggregated.</p>
+    </div>
+    <div class="about-section">
+      <h3>CLI Probe</h3>
+      <p>Run a probe from terminal:</p>
+      <p style="margin-top:6px"><code>curl -s https://your-server/api/targets | jq</code></p>
+    </div>
+  </div>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <button class="nav-btn active" data-tab="s-probe">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+      <span>Probe</span>
+    </button>
+    <button class="nav-btn" data-tab="s-map">
+      <svg viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+      <span>Map</span>
+    </button>
+    <button class="nav-btn" data-tab="s-about">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+      <span>About</span>
+    </button>
+  </nav>
+</div>
+
+<script>
+const tg = (window.Telegram && window.Telegram.WebApp) || {};
+if (tg.ready) tg.ready();
+if (tg.expand) tg.expand();
+if (tg.setHeaderColor) tg.setHeaderColor('#0a0a0f');
+if (tg.setBackgroundColor) tg.setBackgroundColor('#0a0a0f');
+
+const API = '';
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+
+function haptic(style) { tg.HapticFeedback?.impactOccurred(style || 'medium'); }
+
+async function api(endpoint, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  const initData = tg.initData || '';
+  if (initData) headers['Authorization'] = 'tma ' + initData;
+  const maxRetries = (!opts.method || opts.method === 'GET') ? 2 : 0;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      const res = await fetch(API + endpoint, { ...opts, headers: { ...headers, ...opts.headers } });
+      if (!res.ok) throw new Error(res.status);
+      return await res.json();
+    } catch (e) {
+      if (i === maxRetries) throw e;
+      await new Promise(r => setTimeout(r, 500 * (i + 1)));
+    }
+  }
+}
+
+// --- Navigation ---
+$$('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    haptic('light');
+    $$('.nav-btn').forEach(b => b.classList.remove('active'));
+    $$('.screen').forEach(s => s.classList.remove('active'));
+    btn.classList.add('active');
+    $(`#${btn.dataset.tab}`).classList.add('active');
+    if (btn.dataset.tab === 's-map' && !mapLoaded) loadMap();
+  });
+});
+
+// --- Probe ---
+const PROTOCOLS = [
+  { name: 'vless-reality', port: 443, label: 'VLESS Reality' },
+  { name: 'xhttp-1', port: 2083, label: 'XHTTP #1' },
+  { name: 'xhttp-2', port: 8743, label: 'XHTTP #2' },
+  { name: 'xhttp-3', port: 47832, label: 'XHTTP #3' },
+  { name: 'hysteria2', port: 29080, label: 'Hysteria2', skip: true },
+];
+
+let targetIP = '';
+let probing = false;
+
+async function init() {
+  try {
+    const resp = await api('/api/targets');
+    const targets = resp?.targets || [];
+    if (targets.length) {
+      targetIP = targets[0].ip;
+      const serverProtos = targets[0].protocols;
+      if (serverProtos) {
+        PROTOCOLS.forEach(p => {
+          const sp = serverProtos.find(s => s.name === p.name);
+          if (sp) p.port = sp.port;
+        });
+      }
+    }
+  } catch {}
+
+  try {
+    const who = await api('/api/whoami');
+    if (who) {
+      $('#v-region').textContent = who.region || who.regionName || '—';
+      $('#v-city').textContent = who.city || '—';
+      $('#v-isp').textContent = who.isp || '—';
+      $('#v-ip').textContent = who.ip || who.query || '—';
+    }
+  } catch {
+    $('#v-region').textContent = 'N/A';
+  }
+
+  const btn = $('#btn-scan');
+  btn.textContent = 'START SCAN';
+  btn.disabled = false;
+  btn.onclick = startProbe;
+}
+
+async function probePort(ip, port, timeout = 8000) {
+  const start = performance.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    await fetch(`https://${ip}:${port}/`, { signal: ctrl.signal, mode: 'no-cors', cache: 'no-store' });
+    clearTimeout(timer);
+    return { ok: true, ms: Math.round(performance.now() - start) };
+  } catch {
+    clearTimeout(timer);
+    const ms = Math.round(performance.now() - start);
+    if (ms >= timeout - 200) return { ok: false, ms, err: 'timeout' };
+    return { ok: ms > 300, ms, err: ms > 300 ? 'cert_expected' : 'blocked' };
+  }
+}
+
+function renderRow(proto, state, result) {
+  const id = `row-${proto.name}`;
+  let row = $(`#${id}`);
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'proto-row';
+    row.id = id;
+    $('#proto-list').appendChild(row);
+  }
+
+  if (state === 'pending') {
+    row.innerHTML = `<span class="proto-name">${proto.label}</span><span class="proto-port">:${proto.port}</span><div class="spinner"></div>`;
+  } else if (state === 'skip') {
+    row.innerHTML = `<span class="proto-name">${proto.label}</span><span class="proto-port">:${proto.port}</span><span class="proto-status skip">UDP — SKIP</span>`;
+  } else {
+    const ok = result.ok;
+    const cls = result.err === 'timeout' ? 'timeout' : (ok ? 'ok' : 'blocked');
+    const icon = ok ? '✓' : (result.err === 'timeout' ? '◷' : '✕');
+    const label = ok ? 'OPEN' : (result.err === 'timeout' ? 'FILTERED' : 'BLOCKED');
+    row.innerHTML = `<span class="proto-name">${proto.label}</span><span class="proto-port">:${proto.port}</span><span class="proto-status ${cls}">${icon} ${label} ${result.ms}ms</span>`;
+  }
+  return row;
+}
+
+async function startProbe() {
+  if (probing) return;
+  probing = true;
+  haptic('medium');
+
+  const btn = $('#btn-scan');
+  btn.disabled = true;
+  btn.textContent = 'SCANNING…';
+  $('#results-area').style.display = 'block';
+  $('#proto-list').innerHTML = '';
+  $('#summary').style.display = 'none';
+  $('#region-card').classList.add('scanning');
+
+  const results = [];
+  for (const proto of PROTOCOLS) {
+    if (proto.skip) {
+      renderRow(proto, 'skip');
+      continue;
+    }
+    renderRow(proto, 'pending');
+    await sleep(200);
+
+    const r = await probePort(targetIP, proto.port);
+    renderRow(proto, 'done', r);
+    haptic('light');
+    results.push({ target_id: 'us1', protocol: proto.name, port: proto.port, success: r.ok ? 1 : 0, latency_ms: r.ms, error: r.err || '' });
+  }
+
+  $('#region-card').classList.remove('scanning');
+
+  const tcpResults = results;
+  const okCount = tcpResults.filter(r => r.success).length;
+  const blockedCount = tcpResults.filter(r => !r.success && r.error !== 'timeout').length;
+  const filteredCount = tcpResults.filter(r => r.error === 'timeout').length;
+
+  const sum = $('#summary');
+  sum.style.display = 'flex';
+  sum.innerHTML = `
+    <div class="summary-item"><div class="summary-num" style="color:var(--green)">${okCount}</div><div class="summary-label">Open</div></div>
+    <div class="summary-item"><div class="summary-num" style="color:var(--red)">${blockedCount}</div><div class="summary-label">Blocked</div></div>
+    <div class="summary-item"><div class="summary-num" style="color:var(--purple)">${filteredCount}</div><div class="summary-label">Filtered</div></div>
+  `;
+
+  try {
+    await api('/api/probe', { method: 'POST', body: JSON.stringify({ results }) });
+  } catch {}
+
+  haptic('medium');
+  btn.textContent = 'RESCAN';
+  btn.disabled = false;
+  probing = false;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// --- Map ---
+let mapLoaded = false;
+let mapTimer = null;
+let countdown = 60;
+
+async function loadMap() {
+  mapLoaded = true;
+  try {
+    const data = await api('/api/pulse?hours=1');
+    renderMap(data);
+  } catch {
+    $('#map-stats').innerHTML = '<div class="stat-chip" style="flex:1;color:var(--text2)">No data yet — run a probe first</div>';
+  }
+  startMapRefresh();
+}
+
+function renderMap(data) {
+  if (!data) return;
+  const s = data.stats || {};
+  const statsEl = $('#map-stats');
+  statsEl.innerHTML = `
+    <div class="stat-chip"><div class="stat-num">${s.total_probes ?? 0}</div><div class="stat-label">Probes</div></div>
+    <div class="stat-chip"><div class="stat-num">${s.sources ?? 0}</div><div class="stat-label">Sources</div></div>
+    <div class="stat-chip"><div class="stat-num">${s.regions ?? 0}</div><div class="stat-label">Regions</div></div>
+  `;
+
+  const pulse = data.pulse || [];
+  const protoNames = [...new Set(pulse.map(r => r.protocol))];
+  if (!protoNames.length) {
+    const fallback = PROTOCOLS.filter(p => !p.skip).map(p => p.name);
+    protoNames.push(...fallback);
+  }
+
+  const byRegion = {};
+  for (const row of pulse) {
+    const rgn = row.region || '?';
+    if (!byRegion[rgn]) byRegion[rgn] = {};
+    byRegion[rgn][row.protocol] = row;
+  }
+
+  const thead = $('#map-table thead tr');
+  thead.innerHTML = '<th>Region</th>' + protoNames.map(p => `<th>${shortProto(p)}</th>`).join('');
+
+  const tbody = $('#map-table tbody');
+  tbody.innerHTML = '';
+  const regionNames = Object.keys(byRegion).sort();
+
+  if (!regionNames.length) {
+    tbody.innerHTML = `<tr><td colspan="${protoNames.length + 1}" style="color:var(--text2);text-align:center;padding:24px">No data</td></tr>`;
+    return;
+  }
+
+  for (const rgn of regionNames) {
+    const tr = document.createElement('tr');
+    let cells = `<td>${rgn}</td>`;
+    for (const proto of protoNames) {
+      const cell = byRegion[rgn][proto];
+      if (!cell || !cell.total) {
+        cells += '<td><span class="cell-dot n"></span>—</td>';
+        continue;
+      }
+      const pct = Math.round((cell.ok / cell.total) * 100);
+      const cls = pct > 70 ? 'g' : (pct > 30 ? 'y' : 'r');
+      const avg = cell.avg_ms ? `${cell.avg_ms}ms` : '';
+      cells += `<td><span class="cell-dot ${cls}"></span>${pct}%<br><span style="font-size:9px;color:var(--text2)">${avg}</span></td>`;
+    }
+    tr.innerHTML = cells;
+    tbody.appendChild(tr);
+  }
+}
+
+function shortProto(name) {
+  const map = { 'vless-reality': 'VLESS', 'xhttp-1': 'XH-1', 'xhttp-2': 'XH-2', 'xhttp-3': 'XH-3', 'hysteria2': 'HY2' };
+  return map[name] || name;
+}
+
+function startMapRefresh() {
+  if (mapTimer) clearInterval(mapTimer);
+  countdown = 60;
+  mapTimer = setInterval(async () => {
+    countdown--;
+    const bar = $('#refresh-bar');
+    if (bar) bar.textContent = `refresh in ${countdown}s`;
+    if (countdown <= 0) {
+      countdown = 60;
+      try { renderMap(await api('/api/pulse?hours=1')); } catch {}
+    }
+  }, 1000);
+}
+
+// --- Init ---
+init();
+</script>
+</body>
+</html>

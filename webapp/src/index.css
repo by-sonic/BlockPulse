@@ -1,0 +1,147 @@
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+@font-face {
+  font-family: 'Share Tech Mono';
+  src: url('https://fonts.gstatic.com/s/sharetechmono/v15/J7aHnp1uDWRBEqV98dVQztYldFcLowEF.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fira Code';
+  src: url('https://fonts.gstatic.com/s/firacode/v22/uU9eCBsR6Z2vfE9aq3bL0fxyUs4tcw4W_D1sJVD7MOzloj0.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fira Code';
+  src: url('https://fonts.gstatic.com/s/firacode/v22/uU9eCBsR6Z2vfE9aq3bL0fxyUs4tcw4W_GNtJVD7MOzloj0.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfAZ9hiA.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuI6fAZ9hiA.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('https://fonts.gstatic.com/s/inter/v18/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuGKYAZ9hiA.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+
+@theme {
+  --color-base: #050508;
+  --color-surface: #0a0a14;
+  --color-surface-2: #101020;
+  --color-elevated: #181828;
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-bright: rgba(255, 255, 255, 0.12);
+  --color-text-primary: #e4e6f0;
+  --color-text-secondary: #7a7d9a;
+  --color-text-muted: #3d3f56;
+  --color-blue: #3B82F6;
+  --color-blue-dim: rgba(59, 130, 246, 0.1);
+  --color-blue-glow: rgba(59, 130, 246, 0.25);
+  --color-cyan: #22d3ee;
+  --color-cyan-dim: rgba(34, 211, 238, 0.08);
+  --color-green: #00e878;
+  --color-green-dim: rgba(0, 232, 120, 0.1);
+  --color-amber: #ffa726;
+  --color-amber-dim: rgba(255, 167, 38, 0.1);
+  --color-red: #ff4070;
+  --color-red-dim: rgba(255, 64, 112, 0.1);
+  --font-display: 'Share Tech Mono', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Fira Code', 'SF Mono', monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(59, 130, 246, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.015) 1px, transparent 1px);
+  background-size: 80px 80px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  top: -300px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1000px;
+  height: 700px;
+  background: radial-gradient(ellipse, rgba(59, 130, 246, 0.04) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+.maplibregl-popup-content {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border-bright) !important;
+  border-radius: 12px !important;
+  color: var(--color-text-primary) !important;
+  padding: 16px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6) !important;
+  backdrop-filter: blur(20px);
+  min-width: 220px;
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--color-surface) !important;
+}
+.maplibregl-popup-close-button {
+  color: var(--color-text-secondary) !important;
+  font-size: 18px;
+  padding: 4px 8px;
+}
+.maplibregl-ctrl-group {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 8px !important;
+}
+.maplibregl-ctrl-group button {
+  filter: invert(1) brightness(0.7);
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-text-muted); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-secondary); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,18 @@
+.env
+data/
+__pycache__/
+*.pyc
+*.db
+
+# Deploy scripts (internal tooling)
+_*.py
+*.py.bak
+
+# Frontend build artifacts
+webapp/node_modules/
+webapp/dist/
+webapp/.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
