@@ -158,10 +158,11 @@ def main():
 
     all_results = []
 
+    divider = "\u2500" * 52
     for target in targets:
         print(f"  \u0421\u0435\u0440\u0432\u0435\u0440: {target['id']} ({target['ip']})")
         print(f"  {'Proto':<22}{'Port':<8}{'Status':<16}{'Latency'}")
-        print(f"  {'\u2500' * 52}")
+        print("  " + divider)
 
         for name, port, sni, transport in target["protos"]:
             if transport == "udp":
