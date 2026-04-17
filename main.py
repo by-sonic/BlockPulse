@@ -1168,8 +1168,11 @@ async def periodic_probes():
         now = _time.time()
         if now - last_cleanup >= 3600:
             try:
-                await db.cleanup_old_probes(config.RETENTION_DAYS)
-                log.info("Cleaned up probes older than %d days", config.RETENTION_DAYS)
+                agg, deleted = await db.aggregate_and_cleanup()
+                if deleted:
+                    log.info("Aggregated %d hourly buckets, deleted %d raw rows", agg, deleted)
+                await db.cleanup_old_data(config.RETENTION_DAYS)
+                await db.wal_checkpoint()
             except Exception as e:
                 log.error("Cleanup error: %s", e)
             last_cleanup = now
