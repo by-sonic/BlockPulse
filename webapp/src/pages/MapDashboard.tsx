@@ -10,8 +10,7 @@ import { normalizeRegion } from '../lib/regions';
 import { Activity, Users, MapPin } from 'lucide-react';
 
 export function MapDashboard() {
-  const { data: pulseData } = usePulse(1, 60_000);
-  const { data: allTimeData } = usePulse(0, 300_000);
+  const { data: allTimeData } = usePulse(0, 60_000);
   const stats = useStats(60_000);
   const [timeline, setTimeline] = useState<TimelineBucket[]>([]);
   const [, setSelectedRegion] = useState<string | null>(null);
@@ -25,7 +24,6 @@ export function MapDashboard() {
     return () => clearInterval(id);
   }, []);
 
-  const pulse = pulseData?.pulse || [];
   const allTimePulse = allTimeData?.pulse || [];
 
   const visibleRegionCount = useMemo(
@@ -63,7 +61,7 @@ export function MapDashboard() {
         transition={{ delay: 0.1, duration: 0.4 }}
         className="mb-8"
       >
-        <BlockMap pulse={pulse} onRegionClick={setSelectedRegion} />
+        <BlockMap pulse={allTimePulse} onRegionClick={setSelectedRegion} />
       </motion.section>
 
       {/* Protocols */}
@@ -74,8 +72,8 @@ export function MapDashboard() {
         transition={{ duration: 0.4 }}
         className="mb-8"
       >
-        <SectionTitle title="Протоколы" badge={`${pulse.length > 0 ? [...new Set(pulse.map(p => p.protocol))].length : 0}`} />
-        <ProtocolGrid pulse={pulse} timeline={timeline} />
+        <SectionTitle title="Протоколы" badge={`${allTimePulse.length > 0 ? [...new Set(allTimePulse.map(p => p.protocol))].length : 0}`} />
+        <ProtocolGrid pulse={allTimePulse} timeline={timeline} />
       </motion.section>
 
       {/* Regions */}
@@ -87,7 +85,7 @@ export function MapDashboard() {
         className="mb-8"
       >
         <SectionTitle title="Регионы" badge={`${visibleRegionCount}`} />
-        <RegionTable pulse={allTimePulse} currentPulse={pulse} />
+        <RegionTable pulse={allTimePulse} />
       </motion.section>
     </div>
   );
