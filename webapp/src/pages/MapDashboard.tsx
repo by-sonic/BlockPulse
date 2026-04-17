@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { BlockMap } from '../components/Map';
 import { ProtocolGrid } from '../components/ProtocolGrid';
@@ -6,6 +6,7 @@ import { RegionTable } from '../components/RegionTable';
 import { usePulse } from '../hooks/usePulse';
 import { useStats } from '../hooks/useStats';
 import { api, type TimelineBucket } from '../api';
+import { normalizeRegion } from '../lib/regions';
 import { Activity, Users, MapPin } from 'lucide-react';
 
 export function MapDashboard() {
@@ -24,6 +25,10 @@ export function MapDashboard() {
   }, []);
 
   const pulse = pulseData?.pulse || [];
+  const visibleRegionCount = useMemo(
+    () => new Set(pulse.map(p => normalizeRegion(p.region || '')).filter(Boolean)).size,
+    [pulse],
+  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 pb-16">
@@ -78,7 +83,7 @@ export function MapDashboard() {
         transition={{ duration: 0.4 }}
         className="mb-8"
       >
-        <SectionTitle title="Регионы" badge={`${stats?.regions || 0}`} />
+        <SectionTitle title="Регионы" badge={`${visibleRegionCount}`} />
         <RegionTable pulse={pulse} />
       </motion.section>
     </div>

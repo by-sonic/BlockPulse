@@ -48,6 +48,26 @@ PROTO_ORDER = list(PROTO_SHORT.keys())
 VALID_PROTOCOLS = {"vless-reality", "xhttp-1", "xhttp-2", "xhttp-3", "hysteria2"}
 MAX_RESULTS = 20
 
+_REGION_NORMALIZE: dict[str, str] = {
+    "saint petersburg": "Санкт-Петербург",
+    "sankt-peterburg": "Санкт-Петербург",
+    "город санкт-петербург": "Санкт-Петербург",
+    "moscow": "Москва",
+    "moskva": "Москва",
+    "город москва": "Москва",
+    "moscow oblast": "Московская область",
+    "leningrad oblast": "Ленинградская область",
+    "krasnodar krai": "Краснодарский край",
+    "sverdlovsk oblast": "Свердловская область",
+    "novosibirsk oblast": "Новосибирская область",
+    "tatarstan": "Татарстан",
+    "republic of tatarstan": "Татарстан",
+}
+
+
+def _normalize_region(name: str) -> str:
+    return _REGION_NORMALIZE.get(name.lower().strip(), name)
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -262,7 +282,7 @@ async def geoip(ip: str) -> dict:
                     conn = raw.get("connection", {})
                     result = {
                         "country": raw.get("country_code", ""),
-                        "region": raw.get("region", ""),
+                        "region": _normalize_region(raw.get("region", "")),
                         "city": raw.get("city", ""),
                         "isp": conn.get("isp", "") if isinstance(conn, dict) else "",
                     }
@@ -271,7 +291,7 @@ async def geoip(ip: str) -> dict:
                 if raw.get("status") == "success":
                     result = {
                         "country": raw.get("countryCode", ""),
-                        "region": raw.get("regionName", ""),
+                        "region": _normalize_region(raw.get("regionName", "")),
                         "city": raw.get("city", ""),
                         "isp": raw.get("isp", ""),
                     }

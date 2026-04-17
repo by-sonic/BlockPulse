@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
 import { statusColor, STATUS_HEX, PROTO_ORDER, PROTO_SHORT } from '../lib/colors';
+import { normalizeRegion } from '../lib/regions';
 import { StatusDot } from './StatusDot';
 import type { PulseRow } from '../api';
 import { api } from '../api';
@@ -28,7 +29,7 @@ export function RegionTable({ pulse }: Props) {
   const regions = useMemo(() => {
     const map: Record<string, RegionAgg> = {};
     for (const row of pulse) {
-      const r = row.region || '?';
+      const r = normalizeRegion(row.region || '?');
       if (!map[r]) map[r] = { region: r, rate: 0, sources: 0, protocols: {} };
       const rate = row.total > 0 ? row.ok / row.total : 0;
       map[r].protocols[row.protocol] = { rate, avg_ms: row.avg_ms };
