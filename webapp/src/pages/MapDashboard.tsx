@@ -15,6 +15,7 @@ export function MapDashboard() {
   const [, setSelectedRegion] = useState<string | null>(null);
 
   useEffect(() => {
+    document.title = 'Карта блокировок VPN по регионам РФ — BlockPulse';
     api.timeline(24, 1).then(d => setTimeline(d.buckets)).catch(() => {});
     const id = setInterval(() => {
       api.timeline(24, 1).then(d => setTimeline(d.buckets)).catch(() => {});

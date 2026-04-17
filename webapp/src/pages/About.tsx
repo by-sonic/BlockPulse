@@ -4,6 +4,9 @@ import { ExternalLink, Database, Shield, Cpu, Layers, Code2 } from 'lucide-react
 const FADE = { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 } };
 
 export function About() {
+  if (typeof document !== 'undefined') {
+    document.title = 'О проекте BlockPulse — мониторинг VPN блокировок';
+  }
   return (
     <div className="max-w-3xl mx-auto px-4 pb-16">
       <motion.div {...FADE} className="mb-10">

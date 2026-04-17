@@ -1,3 +1,4 @@
+import logging
 import time
 from pathlib import Path
 
@@ -5,18 +6,31 @@ import aiosqlite
 
 import config
 
+log = logging.getLogger(__name__)
+
 _conn: aiosqlite.Connection | None = None
 
 
 async def get_db() -> aiosqlite.Connection:
     global _conn
-    if _conn is None:
-        Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-        _conn = await aiosqlite.connect(config.DB_PATH)
-        _conn.row_factory = aiosqlite.Row
-        await _conn.execute("PRAGMA journal_mode=WAL")
-        await _conn.execute("PRAGMA synchronous=NORMAL")
-        await _conn.execute("PRAGMA busy_timeout=3000")
+    if _conn is not None:
+        try:
+            await _conn.execute("SELECT 1")
+            return _conn
+        except Exception:
+            log.warning("SQLite connection lost, reconnecting...")
+            try:
+                await _conn.close()
+            except Exception:
+                pass
+            _conn = None
+
+    Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+    _conn = await aiosqlite.connect(config.DB_PATH)
+    _conn.row_factory = aiosqlite.Row
+    await _conn.execute("PRAGMA journal_mode=WAL")
+    await _conn.execute("PRAGMA synchronous=NORMAL")
+    await _conn.execute("PRAGMA busy_timeout=3000")
     return _conn
 
 
@@ -68,7 +82,6 @@ async def init_db():
         );
     """)
 
-    # Migrate: add source_type to probes if missing
     async with db.execute("PRAGMA table_info(probes)") as cur:
         columns = {row[1] for row in await cur.fetchall()}
     if "source_type" not in columns:
@@ -231,6 +244,15 @@ async def get_provider_targets() -> list[dict]:
         "ORDER BY pt.created_at DESC"
     ) as cur:
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def count_provider_targets(provider_id: str) -> int:
+    db = await get_db()
+    row = await (await db.execute(
+        "SELECT COUNT(*) FROM provider_targets WHERE provider_id = ? AND is_active = 1",
+        (provider_id,),
+    )).fetchone()
+    return row[0] if row else 0
 
 
 async def add_provider_target(provider_id: str, label: str, ip: str, protocols_json: str):

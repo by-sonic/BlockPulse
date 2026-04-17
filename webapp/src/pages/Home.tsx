@@ -14,6 +14,7 @@ export function Home() {
   const [stats, setStats] = useState<Stats | null>(null);
 
   useEffect(() => {
+    document.title = 'BlockPulse — карта блокировок VPN в России в реальном времени';
     api.stats().then(setStats).catch(() => {});
   }, []);
 

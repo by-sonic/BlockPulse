@@ -18,7 +18,7 @@ type RegionData = Record<string, {
 function buildRegionData(pulse: PulseRow[]): RegionData {
   const rd: RegionData = {};
   for (const row of pulse) {
-    const r = row.region || '?';
+    const r = (row.region || '?').toLowerCase();
     if (!rd[r]) rd[r] = { totalOk: 0, totalAll: 0, rate: 0, protocols: {} };
     rd[r].totalOk += row.ok;
     rd[r].totalAll += row.total;
@@ -31,46 +31,44 @@ function buildRegionData(pulse: PulseRow[]): RegionData {
   return rd;
 }
 
-const RUSSIA_BOUNDS: [[number, number], [number, number]] = [[19, 41], [180, 82]];
+const RUSSIA_CENTER: [number, number] = [90, 62];
+const DEFAULT_FILL = 'rgba(20, 22, 38, 0.5)';
+const DEFAULT_LINE = 'rgba(50, 55, 80, 0.35)';
+
+let _geojsonCache: any = null;
 
 export function BlockMap({ pulse, onRegionClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(false);
   const regionDataRef = useRef<RegionData>({});
 
   regionDataRef.current = buildRegionData(pulse);
 
-  const updateColors = useCallback(() => {
+  const colorize = useCallback(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !map.getSource('regions')) return;
-    const regionData = regionDataRef.current;
+    if (!map || !map.getSource('regions')) return;
+    const rd = regionDataRef.current;
+    const src = map.getSource('regions') as maplibregl.GeoJSONSource;
+    const data = _geojsonCache;
+    if (!data) return;
 
-    const fillExpr: any[] = ['match', ['get', 'name']];
-    const lineExpr: any[] = ['match', ['get', 'name']];
-
-    for (const [pulseRegion, data] of Object.entries(regionData)) {
-      const status = statusColor(data.rate);
-      const hex = STATUS_HEX[status];
-      fillExpr.push(pulseRegion, hex + 'bb');
-      lineExpr.push(pulseRegion, hex);
+    for (const f of data.features) {
+      const name = f.properties.name;
+      const d = rd[name.toLowerCase()];
+      if (d && d.totalAll > 0) {
+        const st = statusColor(d.rate);
+        f.properties._fill = STATUS_HEX[st] + 'bb';
+        f.properties._stroke = STATUS_HEX[st];
+        f.properties._width = 2;
+      } else {
+        f.properties._fill = DEFAULT_FILL;
+        f.properties._stroke = DEFAULT_LINE;
+        f.properties._width = 0.4;
+      }
     }
-
-    fillExpr.push('rgba(30, 32, 48, 0.35)');
-    lineExpr.push('rgba(50, 55, 80, 0.4)');
-
-    const widthExpr: any[] = ['match', ['get', 'name']];
-    for (const pulseRegion of Object.keys(regionData)) {
-      widthExpr.push(pulseRegion, 2.5);
-    }
-    widthExpr.push(0.5);
-
-    try {
-      map.setPaintProperty('regions-fill', 'fill-color', fillExpr);
-      map.setPaintProperty('regions-line', 'line-color', lineExpr);
-      map.setPaintProperty('regions-line', 'line-width', widthExpr);
-    } catch { /* map not ready */ }
+    src.setData(data);
   }, []);
 
   useEffect(() => {
@@ -81,14 +79,10 @@ export function BlockMap({ pulse, onRegionClick }: Props) {
       style: {
         version: 8,
         sources: {},
-        layers: [{
-          id: 'bg',
-          type: 'background',
-          paint: { 'background-color': '#080810' },
-        }],
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#060610' } }],
       },
-      bounds: RUSSIA_BOUNDS,
-      fitBoundsOptions: { padding: 30 },
+      center: RUSSIA_CENTER,
+      zoom: 2.2,
       minZoom: 2,
       maxZoom: 8,
       attributionControl: false,
@@ -97,70 +91,61 @@ export function BlockMap({ pulse, onRegionClick }: Props) {
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
     map.on('load', async () => {
-      try {
+      if (!_geojsonCache) {
         const resp = await fetch('/russia-regions.geojson');
-        const geojson = await resp.json();
-
-        map.addSource('regions', { type: 'geojson', data: geojson });
-
-        map.addLayer({
-          id: 'regions-fill',
-          type: 'fill',
-          source: 'regions',
-          paint: {
-            'fill-color': 'rgba(30, 32, 48, 0.4)',
-            'fill-opacity': 1,
-          },
-        });
-
-        map.addLayer({
-          id: 'regions-line',
-          type: 'line',
-          source: 'regions',
-          paint: {
-            'line-color': 'rgba(60, 65, 90, 0.5)',
-            'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.4, 5, 1, 8, 1.5],
-          },
-        });
-
-        map.addLayer({
-          id: 'regions-hover',
-          type: 'line',
-          source: 'regions',
-          paint: {
-            'line-color': '#3B82F6',
-            'line-width': 2,
-            'line-opacity': 0,
-          },
-        });
-
-        // Region labels at higher zoom
-        map.addLayer({
-          id: 'regions-label',
-          type: 'symbol',
-          source: 'regions',
-          minzoom: 4,
-          layout: {
-            'text-field': ['get', 'name'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 4, 9, 7, 13],
-            'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
-            'text-max-width': 8,
-          },
-          paint: {
-            'text-color': 'rgba(180, 185, 210, 0.7)',
-            'text-halo-color': '#080810',
-            'text-halo-width': 1.5,
-          },
-        });
-
-        setLoaded(true);
-      } catch (e) {
-        console.error('GeoJSON load error:', e);
+        _geojsonCache = await resp.json();
+        for (const f of _geojsonCache.features) {
+          f.properties._fill = DEFAULT_FILL;
+          f.properties._stroke = DEFAULT_LINE;
+          f.properties._width = 0.4;
+        }
       }
+
+      map.addSource('regions', { type: 'geojson', data: _geojsonCache });
+
+      map.addLayer({
+        id: 'regions-fill',
+        type: 'fill',
+        source: 'regions',
+        paint: { 'fill-color': ['get', '_fill'], 'fill-opacity': 1 },
+      });
+      map.addLayer({
+        id: 'regions-line',
+        type: 'line',
+        source: 'regions',
+        paint: {
+          'line-color': ['get', '_stroke'],
+          'line-width': ['get', '_width'],
+        },
+      });
+      map.addLayer({
+        id: 'regions-hover',
+        type: 'line',
+        source: 'regions',
+        paint: { 'line-color': '#3B82F6', 'line-width': 2, 'line-opacity': 0 },
+      });
+      map.addLayer({
+        id: 'regions-label',
+        type: 'symbol',
+        source: 'regions',
+        minzoom: 4,
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 4, 9, 7, 13],
+          'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+          'text-max-width': 8,
+        },
+        paint: {
+          'text-color': 'rgba(180, 185, 210, 0.7)',
+          'text-halo-color': '#060610',
+          'text-halo-width': 1.5,
+        },
+      });
+
+      setReady(true);
     });
 
     let hoveredName: string | null = null;
-
     map.on('mousemove', 'regions-fill', (e) => {
       if (!e.features?.length) return;
       map.getCanvas().style.cursor = 'pointer';
@@ -172,7 +157,6 @@ export function BlockMap({ pulse, onRegionClick }: Props) {
         ]);
       }
     });
-
     map.on('mouseleave', 'regions-fill', () => {
       map.getCanvas().style.cursor = '';
       hoveredName = null;
@@ -182,53 +166,40 @@ export function BlockMap({ pulse, onRegionClick }: Props) {
     map.on('click', 'regions-fill', (e) => {
       if (!e.features?.length) return;
       const name = e.features[0].properties?.name || '';
-      const regionData = regionDataRef.current;
-
+      const rd = regionDataRef.current;
       if (popupRef.current) popupRef.current.remove();
 
-      const rd = regionData[name];
-      const hasData = rd && rd.totalAll > 0;
+      const data = rd[name.toLowerCase()];
+      const hasData = data && data.totalAll > 0;
 
-      const protos = PROTO_ORDER.map(p => {
-        const d = rd?.protocols[p];
-        if (!d) {
-          return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0">
-            <span style="width:7px;height:7px;border-radius:50%;background:#3d3f56;flex-shrink:0"></span>
-            <span style="flex:1;font-size:12px;color:#6e7191">${PROTO_LABELS[p] || p}</span>
-            <span style="font-family:monospace;font-size:11px;color:#3d3f56">—</span>
-          </div>`;
-        }
+      const rows = PROTO_ORDER.map(p => {
+        const d = data?.protocols[p];
+        if (!d) return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0">
+          <span style="width:6px;height:6px;border-radius:50%;background:#3d3f56"></span>
+          <span style="flex:1;font-size:12px;color:#6e7191">${PROTO_LABELS[p] || p}</span>
+          <span style="font-family:monospace;font-size:11px;color:#3d3f56">\u2014</span></div>`;
         const pct = Math.round(d.rate * 100);
-        const status = statusColor(d.rate);
-        const color = STATUS_HEX[status];
+        const c = STATUS_HEX[statusColor(d.rate)];
         const ms = d.avg_ms ? `${d.avg_ms}ms` : '';
         return `<div style="display:flex;align-items:center;gap:8px;padding:3px 0">
-          <span style="width:7px;height:7px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}50;flex-shrink:0"></span>
+          <span style="width:6px;height:6px;border-radius:50%;background:${c};box-shadow:0 0 5px ${c}50"></span>
           <span style="flex:1;font-size:12px;color:#e0e2ef">${PROTO_LABELS[p] || p}</span>
-          <span style="font-family:monospace;font-size:12px;font-weight:600;color:${color}">${pct}%</span>
-          ${ms ? `<span style="font-family:monospace;font-size:10px;color:#6e7191">${ms}</span>` : ''}
-        </div>`;
+          <span style="font-family:monospace;font-size:12px;font-weight:600;color:${c}">${pct}%</span>
+          ${ms ? `<span style="font-family:monospace;font-size:10px;color:#6e7191">${ms}</span>` : ''}</div>`;
       }).join('');
 
-      const rateText = hasData
-        ? `<div style="font-size:11px;color:#6e7191;margin-top:6px;font-family:monospace">
-            Проверок: ${rd.totalAll} | Доступность: ${Math.round(rd.rate * 100)}%
-          </div>`
-        : `<div style="font-size:11px;color:#6e7191;margin-top:6px">Нет данных — запусти проверку!</div>`;
+      const info = hasData
+        ? `<div style="font-size:11px;color:#6e7191;margin-top:6px;font-family:monospace">Проверок: ${data.totalAll} | Доступность: ${Math.round(data.rate * 100)}%</div>`
+        : `<div style="font-size:11px;color:#6e7191;margin-top:6px">Нет данных</div>`;
 
-      const popup = new maplibregl.Popup({ offset: 15, maxWidth: '300px' })
+      popupRef.current = new maplibregl.Popup({ offset: 15, maxWidth: '280px' })
         .setLngLat(e.lngLat)
-        .setHTML(`
-          <div style="font-family:'Geist',system-ui,sans-serif">
-            <div style="font-size:14px;font-weight:600;margin-bottom:8px;color:#e0e2ef">${name}</div>
-            ${protos}
-            ${rateText}
-          </div>
-        `)
+        .setHTML(`<div style="font-family:'Inter',system-ui,sans-serif">
+          <div style="font-size:14px;font-weight:600;margin-bottom:8px;color:#e0e2ef">${name}</div>
+          ${rows}${info}</div>`)
         .addTo(map);
-      popupRef.current = popup;
 
-      if (onRegionClick) onRegionClick(name);
+      onRegionClick?.(name);
     });
 
     mapRef.current = map;
@@ -236,15 +207,12 @@ export function BlockMap({ pulse, onRegionClick }: Props) {
   }, [onRegionClick]);
 
   useEffect(() => {
-    if (loaded) updateColors();
-  }, [loaded, pulse, updateColors]);
+    if (ready) colorize();
+  }, [ready, pulse, colorize]);
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-border bg-surface">
-      <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan/20 to-transparent z-10" />
       <div ref={containerRef} className="w-full h-[420px] md:h-[540px]" />
-
-      {/* Legend */}
       <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5 z-10">
         {([
           ['green', 'Работает'],

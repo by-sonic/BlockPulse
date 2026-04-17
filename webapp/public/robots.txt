@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /probe.py
+
+Sitemap: https://blockpulse.ru/sitemap.xml
+
+# BlockPulse — мониторинг блокировок VPN в РФ
+# https://blockpulse.ru

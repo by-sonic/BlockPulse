@@ -5,6 +5,8 @@ BlockPulse probe — тест доступности VPN-протоколов и
 Запуск:  python3 run.py
 Код открыт, зависимостей нет (только stdlib Python 3.8+).
 """
+import hashlib
+import hmac as _hmac
 import json
 import socket
 import ssl
@@ -15,6 +17,8 @@ import urllib.request
 API_URL = "__API_URL__"
 
 TARGETS = "__TARGETS__"
+
+HMAC_SECRET = "__HMAC_SECRET__"
 
 
 def probe_tls(ip, port, sni, timeout=8):
@@ -99,12 +103,29 @@ def fetch_targets():
     return TARGETS
 
 
+def _sign_results(results, timestamp):
+    """HMAC-SHA256 sign the results for server verification."""
+    secret = HMAC_SECRET
+    if not secret or secret.startswith("__"):
+        return "", ""
+    ts = str(timestamp)
+    results_json = json.dumps(results, separators=(",", ":"), sort_keys=True)
+    sig = _hmac.new(secret.encode(), f"{ts}.{results_json}".encode(), hashlib.sha256).hexdigest()
+    return sig, ts
+
+
 def send_results(ip, results):
-    data = json.dumps({"source_ip": ip, "results": results}).encode()
+    ts = int(time.time())
+    sig, ts_str = _sign_results(results, ts)
+    payload = json.dumps({"source_ip": ip, "results": results}).encode()
+    headers = {"Content-Type": "application/json"}
+    if sig:
+        headers["X-Signature"] = sig
+        headers["X-Timestamp"] = ts_str
     req = urllib.request.Request(
         API_URL.rstrip("/") + "/api/probe",
-        data=data,
-        headers={"Content-Type": "application/json"},
+        data=payload,
+        headers=headers,
     )
     try:
         resp = urllib.request.urlopen(req, timeout=10)

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """BlockPulse — crowdsourced VPN protocol blocking monitor."""
 import asyncio
-import os
+import collections
 import hashlib
+import hmac
 import ipaddress
 import json
 import logging
+import os
 import secrets
 import time as _time
 from pathlib import Path
@@ -51,10 +53,18 @@ MAX_RESULTS = 20
 
 
 def _get_real_ip(request: web.Request) -> str:
+    """Extract real client IP, respecting trusted reverse proxies only."""
+    remote = request.remote or ""
+    if remote not in config.TRUSTED_PROXIES:
+        return remote
     forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote or ""
+    if not forwarded:
+        return remote
+    parts = [p.strip() for p in forwarded.split(",")]
+    for ip in reversed(parts):
+        if ip and ip not in config.TRUSTED_PROXIES:
+            return ip
+    return remote
 
 
 def _safe_int(val, default: int = 0, lo: int | None = None, hi: int | None = None) -> int:
@@ -85,7 +95,37 @@ def _dashboard_url() -> str:
     return f"http://{host}:{config.API_PORT}"
 
 
-# ── Rate Limiting (per-IP token bucket) ───────────────────────────────────
+# ── HMAC Probe Authentication ─────────────────────────────────────────────
+
+
+def _compute_probe_hmac(results_json: str, timestamp: str) -> str:
+    """HMAC-SHA256 of results JSON + timestamp using shared secret."""
+    if not config.HMAC_SECRET:
+        return ""
+    msg = f"{timestamp}.{results_json}".encode()
+    return hmac.new(config.HMAC_SECRET.encode(), msg, hashlib.sha256).hexdigest()
+
+
+def _verify_probe_hmac(body: dict, request: web.Request) -> bool:
+    """Verify HMAC signature on probe submission. Skip if no secret configured."""
+    if not config.HMAC_SECRET:
+        return True
+    sig = request.headers.get("X-Signature", "")
+    ts = request.headers.get("X-Timestamp", "")
+    if not sig or not ts:
+        return False
+    try:
+        req_time = int(ts)
+    except (TypeError, ValueError):
+        return False
+    if abs(_time.time() - req_time) > 300:
+        return False
+    results_json = json.dumps(body.get("results", []), separators=(",", ":"), sort_keys=True)
+    expected = _compute_probe_hmac(results_json, ts)
+    return hmac.compare_digest(sig, expected)
+
+
+# ── Rate Limiting (per-IP token bucket with cleanup) ──────────────────────
 
 
 class _TokenBucket:
@@ -108,13 +148,36 @@ class _TokenBucket:
 
 
 _buckets: dict[str, _TokenBucket] = {}
-_provider_ips: set[str] = set()
+_BUCKETS_MAX = 50_000
+_BUCKET_STALE_SECS = 600.0
+_last_bucket_cleanup = _time.monotonic()
+
+_provider_ips: dict[str, float] = {}
+_PROVIDER_IP_TTL = 3600.0
+
+
+def _cleanup_buckets():
+    global _last_bucket_cleanup
+    now = _time.monotonic()
+    if now - _last_bucket_cleanup < 60:
+        return
+    _last_bucket_cleanup = now
+    stale = [ip for ip, b in _buckets.items() if now - b.last_refill > _BUCKET_STALE_SECS]
+    for ip in stale:
+        del _buckets[ip]
+    expired_providers = [ip for ip, ts in _provider_ips.items() if now - ts > _PROVIDER_IP_TTL]
+    for ip in expired_providers:
+        del _provider_ips[ip]
 
 
 def _rate_limit_check(ip: str) -> bool:
+    _cleanup_buckets()
     is_provider = ip in _provider_ips
     cap = 60.0 if is_provider else 10.0
     rate = cap / 60.0
+
+    if len(_buckets) >= _BUCKETS_MAX and ip not in _buckets:
+        return False
 
     if ip not in _buckets:
         _buckets[ip] = _TokenBucket(rate, cap)
@@ -147,17 +210,31 @@ async def cors_mw(request: web.Request, handler):
         return web.Response(headers={
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Timestamp",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Timestamp, X-Signature",
         })
     resp = await handler(request)
     resp.headers["Access-Control-Allow-Origin"] = origin
     return resp
 
 
-# ── GeoIP Cache (max 10k entries, TTL 1h, evict oldest half) ─────────────
+# ── Security Headers Middleware ────────────────────────────────────────────
 
 
-_geo_cache: dict[str, tuple[dict, float]] = {}
+@web.middleware
+async def security_headers_mw(request: web.Request, handler):
+    resp = await handler(request)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    if request.path.startswith("/api/"):
+        resp.headers["Content-Security-Policy"] = "default-src 'none'"
+    return resp
+
+
+# ── GeoIP Cache (LRU via OrderedDict, max 10k entries, TTL 1h) ───────────
+
+
+_geo_cache: collections.OrderedDict[str, tuple[dict, float]] = collections.OrderedDict()
 _GEO_CACHE_MAX = 10_000
 _GEO_TTL = 3600
 
@@ -168,13 +245,12 @@ async def geoip(ip: str) -> dict:
     if cached:
         data, ts = cached
         if now - ts < _GEO_TTL:
+            _geo_cache.move_to_end(ip)
             return data
         del _geo_cache[ip]
 
-    if len(_geo_cache) >= _GEO_CACHE_MAX:
-        sorted_keys = sorted(_geo_cache, key=lambda k: _geo_cache[k][1])
-        for k in sorted_keys[: len(sorted_keys) // 2]:
-            del _geo_cache[k]
+    while len(_geo_cache) >= _GEO_CACHE_MAX:
+        _geo_cache.popitem(last=False)
 
     try:
         async with aiohttp.ClientSession() as s:
@@ -182,8 +258,19 @@ async def geoip(ip: str) -> dict:
                 config.GEOIP_URL.format(ip), timeout=aiohttp.ClientTimeout(total=5)
             ) as resp:
                 raw = await resp.json()
+                if raw.get("success") is True:
+                    conn = raw.get("connection", {})
+                    result = {
+                        "country": raw.get("country_code", ""),
+                        "region": raw.get("region", ""),
+                        "city": raw.get("city", ""),
+                        "isp": conn.get("isp", "") if isinstance(conn, dict) else "",
+                    }
+                    _geo_cache[ip] = (result, now)
+                    return result
                 if raw.get("status") == "success":
                     result = {
+                        "country": raw.get("countryCode", ""),
                         "region": raw.get("regionName", ""),
                         "city": raw.get("city", ""),
                         "isp": raw.get("isp", ""),
@@ -192,7 +279,7 @@ async def geoip(ip: str) -> dict:
                     return result
     except Exception as e:
         log.warning("GeoIP failed for %s: %s", ip, e)
-    return {"region": "", "city": "", "isp": ""}
+    return {"country": "", "region": "", "city": "", "isp": ""}
 
 
 # ── Provider Auth (Bearer <provider_id>:<token>, SHA-256 hashed) ──────────
@@ -213,7 +300,7 @@ async def _verify_provider(request: web.Request) -> str | None:
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     if not secrets.compare_digest(token_hash, provider["secret_hash"]):
         return None
-    _provider_ips.add(_get_real_ip(request))
+    _provider_ips[_get_real_ip(request)] = _time.monotonic()
     return provider_id
 
 
@@ -224,34 +311,38 @@ async def _verify_provider(request: web.Request) -> str | None:
 async def cmd_start(msg: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="\U0001f5fa Карта блокировок",
+            text="\U0001f5fa \u041a\u0430\u0440\u0442\u0430 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a",
             url=_dashboard_url() + "/map",
         )],
         [InlineKeyboardButton(
-            text="\U0001f4ca Пульс",
+            text="\U0001f50d \u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u043c\u043e\u0439 \u0440\u0435\u0433\u0438\u043e\u043d",
+            callback_data="bp_myregion",
+        )],
+        [InlineKeyboardButton(
+            text="\U0001f4ca \u041f\u0443\u043b\u044c\u0441",
             callback_data="bp_check",
         ),
         InlineKeyboardButton(
-            text="\U0001f9ea Проверка",
+            text="\U0001f9ea \u0417\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c probe",
             callback_data="bp_probe",
         )],
         [InlineKeyboardButton(
-            text="\U0001f514 Подписка",
+            text="\U0001f514 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430",
             callback_data="bp_subscribe",
         ),
         InlineKeyboardButton(
-            text="\u2753 Как работает",
+            text="\u2753 \u041a\u0430\u043a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442",
             callback_data="bp_help",
         )],
         [InlineKeyboardButton(
-            text="\U0001f6e1 SonicVPN — быстрый VPN",
+            text="\U0001f6e1 SonicVPN \u2014 \u0431\u044b\u0441\u0442\u0440\u044b\u0439 VPN",
             url="https://t.me/bysonicvpn_bot",
         )],
     ])
     await msg.answer(
-        "<b>BlockPulse</b> — мониторинг блокировок VPN-протоколов в РФ\n\n"
-        "Crowdsourced данные от реальных пользователей: "
-        "какой протокол работает в твоём регионе прямо сейчас.\n\n"
+        "<b>BlockPulse</b> \u2014 \u043c\u043e\u043d\u0438\u0442\u043e\u0440\u0438\u043d\u0433 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a VPN-\u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b\u043e\u0432 \u0432 \u0420\u0424\n\n"
+        "Crowdsourced \u0434\u0430\u043d\u043d\u044b\u0435 \u043e\u0442 \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0445 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0435\u0439: "
+        "\u043a\u0430\u043a\u043e\u0439 \u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u0432 \u0442\u0432\u043e\u0451\u043c \u0440\u0435\u0433\u0438\u043e\u043d\u0435 \u043f\u0440\u044f\u043c\u043e \u0441\u0435\u0439\u0447\u0430\u0441.\n\n"
         f"\U0001f310 <a href=\"{_dashboard_url()}\">blockpulse.ru</a>",
         parse_mode=ParseMode.HTML,
         reply_markup=kb,
@@ -284,7 +375,7 @@ async def cmd_check(msg: Message):
             }
 
     xhttp_cols = ["xhttp-1", "xhttp-2", "xhttp-3"]
-    header = f"{'Регион':<18}{'VLESS':>6}{'XHTTP':>7}{'HY2':>6}"
+    header = f"{'\u0420\u0435\u0433\u0438\u043e\u043d':<18}{'VLESS':>6}{'XHTTP':>7}{'HY2':>6}"
     lines = [
         "<b>\u041f\u0443\u043b\u044c\u0441 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a</b>\n",
         f"<code>{header}</code>",
@@ -316,7 +407,7 @@ async def cmd_check(msg: Message):
         f"\n\u0418\u0441\u0442\u043e\u0447\u043d\u0438\u043a\u043e\u0432: {stats['sources']} | "
         f"\u0420\u0435\u0433\u0438\u043e\u043d\u043e\u0432: {stats['regions']}"
     )
-    lines.append(f"Карта: {_dashboard_url()}/map")
+    lines.append(f"\u041a\u0430\u0440\u0442\u0430: {_dashboard_url()}/map")
     await msg.answer("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -324,14 +415,14 @@ async def cmd_check(msg: Message):
 async def cmd_probe(msg: Message):
     url = _api_base_url()
     await msg.answer(
-        "<b>Запусти проверку со своего устройства</b>\n\n"
-        "<b>Linux / macOS (авто-установка):</b>\n"
+        "<b>\u0417\u0430\u043f\u0443\u0441\u0442\u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0443 \u0441\u043e \u0441\u0432\u043e\u0435\u0433\u043e \u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432\u0430</b>\n\n"
+        "<b>Linux / macOS (\u0430\u0432\u0442\u043e-\u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0430):</b>\n"
         f"<code>curl -sL {url}/probe/install.sh | bash</code>\n\n"
         "<b>Windows PowerShell:</b>\n"
         f"<code>irm {url}/probe/install.ps1 | iex</code>\n\n"
-        "Скрипт сам проверит Python, скачает probe и отправит данные на карту.\n"
-        f"Код открыт — <a href=\"{url}/probe.py\">проверь перед запуском</a>.\n\n"
-        f"\U0001f310 Результаты: <a href=\"{url}/map\">карта блокировок</a>",
+        "\u0421\u043a\u0440\u0438\u043f\u0442 \u0441\u0430\u043c \u043f\u0440\u043e\u0432\u0435\u0440\u0438\u0442 Python, \u0441\u043a\u0430\u0447\u0430\u0435\u0442 probe \u0438 \u043e\u0442\u043f\u0440\u0430\u0432\u0438\u0442 \u0434\u0430\u043d\u043d\u044b\u0435 \u043d\u0430 \u043a\u0430\u0440\u0442\u0443.\n"
+        f"\u041a\u043e\u0434 \u043e\u0442\u043a\u0440\u044b\u0442 \u2014 <a href=\"{url}/probe.py\">\u043f\u0440\u043e\u0432\u0435\u0440\u044c \u043f\u0435\u0440\u0435\u0434 \u0437\u0430\u043f\u0443\u0441\u043a\u043e\u043c</a>.\n\n"
+        f"\U0001f310 \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b: <a href=\"{url}/map\">\u043a\u0430\u0440\u0442\u0430 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a</a>",
         parse_mode=ParseMode.HTML,
         reply_markup=_BACK_BTN,
         disable_web_page_preview=True,
@@ -393,6 +484,14 @@ async def cmd_subscribe(msg: Message):
                 "\u043f\u043e \u0440\u0435\u0433\u0438\u043e\u043d\u0430\u043c. "
                 "\u0417\u0430\u043f\u0443\u0441\u0442\u0438 /probe \u043f\u0435\u0440\u0432\u044b\u043c!"
             )
+        return
+    known = await db.get_regions()
+    if known and region not in known:
+        await msg.answer(
+            f"\u0420\u0435\u0433\u0438\u043e\u043d <b>{region}</b> \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d.\n"
+            f"\u0414\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435: /subscribe",
+            parse_mode=ParseMode.HTML,
+        )
         return
     await db.add_subscriber(msg.from_user.id, region)
     await msg.answer(
@@ -458,40 +557,110 @@ _BACK_BTN = InlineKeyboardMarkup(inline_keyboard=[
 async def cb_home(cb: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="\U0001f5fa Карта блокировок",
+            text="\U0001f5fa \u041a\u0430\u0440\u0442\u0430 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a",
             url=_dashboard_url() + "/map",
         )],
         [InlineKeyboardButton(
-            text="\U0001f4ca Пульс",
+            text="\U0001f50d \u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u043c\u043e\u0439 \u0440\u0435\u0433\u0438\u043e\u043d",
+            callback_data="bp_myregion",
+        )],
+        [InlineKeyboardButton(
+            text="\U0001f4ca \u041f\u0443\u043b\u044c\u0441",
             callback_data="bp_check",
         ),
         InlineKeyboardButton(
-            text="\U0001f9ea Проверка",
+            text="\U0001f9ea \u0417\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c probe",
             callback_data="bp_probe",
         )],
         [InlineKeyboardButton(
-            text="\U0001f514 Подписка",
+            text="\U0001f514 \u041f\u043e\u0434\u043f\u0438\u0441\u043a\u0430",
             callback_data="bp_subscribe",
         ),
         InlineKeyboardButton(
-            text="\u2753 Как работает",
+            text="\u2753 \u041a\u0430\u043a \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442",
             callback_data="bp_help",
         )],
         [InlineKeyboardButton(
-            text="\U0001f6e1 SonicVPN — быстрый VPN",
+            text="\U0001f6e1 SonicVPN \u2014 \u0431\u044b\u0441\u0442\u0440\u044b\u0439 VPN",
             url="https://t.me/bysonicvpn_bot",
         )],
     ])
     await cb.message.edit_text(
-        "<b>BlockPulse</b> — мониторинг блокировок VPN-протоколов в РФ\n\n"
-        "Crowdsourced данные от реальных пользователей: "
-        "какой протокол работает в твоём регионе прямо сейчас.\n\n"
+        "<b>BlockPulse</b> \u2014 \u043c\u043e\u043d\u0438\u0442\u043e\u0440\u0438\u043d\u0433 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a VPN-\u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b\u043e\u0432 \u0432 \u0420\u0424\n\n"
+        "Crowdsourced \u0434\u0430\u043d\u043d\u044b\u0435 \u043e\u0442 \u0440\u0435\u0430\u043b\u044c\u043d\u044b\u0445 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u0435\u0439: "
+        "\u043a\u0430\u043a\u043e\u0439 \u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 \u0432 \u0442\u0432\u043e\u0451\u043c \u0440\u0435\u0433\u0438\u043e\u043d\u0435 \u043f\u0440\u044f\u043c\u043e \u0441\u0435\u0439\u0447\u0430\u0441.\n\n"
         f"\U0001f310 <a href=\"{_dashboard_url()}\">blockpulse.ru</a>",
         parse_mode=ParseMode.HTML,
         reply_markup=kb,
         disable_web_page_preview=True,
     )
     await cb.answer()
+
+
+@router.callback_query(lambda c: c.data == "bp_myregion")
+async def cb_myregion(cb: CallbackQuery):
+    await cb.answer("\U0001f50d \u041e\u043f\u0440\u0435\u0434\u0435\u043b\u044f\u044e \u0440\u0435\u0433\u0438\u043e\u043d...")
+    server_ip = await _get_server_ip()
+    if not server_ip:
+        await cb.message.edit_text(
+            "\u274c \u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0438\u0442\u044c IP \u0441\u0435\u0440\u0432\u0435\u0440\u0430. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u043f\u043e\u0437\u0436\u0435.",
+            reply_markup=_BACK_BTN,
+        )
+        return
+
+    geo = await geoip(server_ip)
+    region = geo.get("region", "")
+    if not region:
+        await cb.message.edit_text(
+            "\u274c \u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u043f\u0440\u0435\u0434\u0435\u043b\u0438\u0442\u044c \u0440\u0435\u0433\u0438\u043e\u043d. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u043f\u043e\u0437\u0436\u0435.",
+            reply_markup=_BACK_BTN,
+        )
+        return
+
+    pulse = await db.get_pulse(hours=6)
+    if not pulse:
+        pulse = await db.get_pulse(hours=24)
+
+    region_data: dict[str, dict] = {}
+    for row in (pulse or []):
+        if row["region"] != region:
+            continue
+        rate = row["ok"] / row["total"] if row["total"] else 0
+        region_data[row["protocol"]] = {
+            "rate": rate,
+            "avg_ms": row["avg_ms"],
+        }
+
+    def _status(r: float | None) -> str:
+        if r is None:
+            return "\u2796 \u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445"
+        if r >= 0.7:
+            return f"\u2705 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442 ({round(r*100)}%)"
+        if r >= 0.3:
+            return f"\u26a0\ufe0f \u043d\u0435\u0441\u0442\u0430\u0431\u0438\u043b\u044c\u043d\u043e ({round(r*100)}%)"
+        return f"\u274c \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043a\u0430 ({round(r*100)}%)"
+
+    lines = [f"\U0001f4cd <b>{region}</b>\n"]
+    if region_data:
+        for proto, label in PROTO_SHORT.items():
+            d = region_data.get(proto)
+            rate = d["rate"] if d else None
+            ms_str = f" \u2022 {d['avg_ms']}ms" if d and d["avg_ms"] else ""
+            lines.append(f"  {label}: {_status(rate)}{ms_str}")
+        lines.append(f"\n\U0001f5fa <a href=\"{_dashboard_url()}/map\">\u041f\u043e\u0434\u0440\u043e\u0431\u043d\u0435\u0435 \u043d\u0430 \u043a\u0430\u0440\u0442\u0435</a>")
+    else:
+        lines.append("\u041f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445 \u0434\u043b\u044f \u044d\u0442\u043e\u0433\u043e \u0440\u0435\u0433\u0438\u043e\u043d\u0430.")
+        lines.append("\u0417\u0430\u043f\u0443\u0441\u0442\u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0443 \u2014 \u0431\u0443\u0434\u044c \u043f\u0435\u0440\u0432\u044b\u043c! \U0001f447")
+        lines.append("")
+        url = _api_base_url()
+        lines.append(f"<code>curl -sL {url}/probe/install.sh | bash</code>")
+
+    await cb.message.edit_text(
+        "\n".join(lines),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_BACK_BTN,
+        disable_web_page_preview=True,
+    )
 
 
 @router.callback_query(lambda c: c.data == "bp_check")
@@ -521,7 +690,7 @@ async def cb_check(cb: CallbackQuery):
             }
 
     xhttp_cols = ["xhttp-1", "xhttp-2", "xhttp-3"]
-    header = f"{'Регион':<18}{'VLESS':>6}{'XHTTP':>7}{'HY2':>6}"
+    header = f"{'\u0420\u0435\u0433\u0438\u043e\u043d':<18}{'VLESS':>6}{'XHTTP':>7}{'HY2':>6}"
     lines = [
         "<b>\u041f\u0443\u043b\u044c\u0441 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u043e\u043a</b>\n",
         f"<code>{header}</code>",
@@ -726,6 +895,9 @@ async def h_probe_submit(request: web.Request):
     except Exception:
         return web.json_response({"error": "invalid json"}, status=400)
 
+    if not _verify_probe_hmac(body, request):
+        return web.json_response({"error": "invalid signature"}, status=403)
+
     ip = _get_real_ip(request)
     try:
         ipaddress.ip_address(ip)
@@ -737,6 +909,11 @@ async def h_probe_submit(request: web.Request):
         return web.json_response({"error": "need results[]"}, status=400)
 
     geo = await geoip(ip)
+
+    if geo.get("country") != "RU":
+        log.info("Rejected non-RU probe from %s (country=%s)", ip, geo.get("country", "?"))
+        return web.json_response({"error": "only Russian IPs accepted"}, status=403)
+
     validated = _validate_probe_results(results)
     if not validated:
         return web.json_response({"error": "no valid results"}, status=400)
@@ -774,6 +951,7 @@ async def h_probe_script(request: web.Request):
     text = p.read_text(encoding="utf-8")
     api_url = _api_base_url()
     text = text.replace('"__API_URL__"', json.dumps(api_url))
+    text = text.replace('"__HMAC_SECRET__"', json.dumps(config.HMAC_SECRET))
     targets = []
     for t in config.TEST_TARGETS:
         if t["ip"]:
@@ -854,6 +1032,10 @@ async def h_provider_add_target(request: web.Request):
     if not provider_id:
         return web.json_response({"error": "unauthorized"}, status=401)
 
+    count = await db.count_provider_targets(provider_id)
+    if count >= config.MAX_PROVIDER_TARGETS:
+        return web.json_response({"error": "target limit reached"}, status=429)
+
     try:
         body = await request.json()
     except Exception:
@@ -895,15 +1077,21 @@ async def h_provider_add_target(request: web.Request):
 # ── App Factory ───────────────────────────────────────────────────────────
 
 
+_MAX_BODY = 64 * 1024
+
+
 def create_app() -> web.Application:
-    app = web.Application(middlewares=[rate_limit_mw, cors_mw])
+    app = web.Application(
+        middlewares=[rate_limit_mw, cors_mw, security_headers_mw],
+        client_max_size=_MAX_BODY,
+    )
     app.router.add_get("/", h_index)
     app.router.add_get("/app", h_miniapp)
     app.router.add_get("/app/", h_miniapp)
     app.router.add_get("/api/whoami", h_whoami)
     app.router.add_get("/api/pulse", h_pulse)
-    app.router.add_get("/api/pulse/{region}", h_pulse_region)
     app.router.add_get("/api/pulse/timeline", h_pulse_timeline)
+    app.router.add_get("/api/pulse/{region}", h_pulse_region)
     app.router.add_get("/api/regions", h_regions)
     app.router.add_get("/api/stats", h_stats)
     app.router.add_get("/api/targets", h_targets)
@@ -1004,6 +1192,9 @@ async def _bot_polling_loop(bot: Bot, dp: Dispatcher):
 
 
 async def main():
+    if not config.HMAC_SECRET:
+        log.warning("BP_HMAC_SECRET not set — probe submissions will not be verified!")
+
     await db.init_db()
     log.info("Database initialized")
 

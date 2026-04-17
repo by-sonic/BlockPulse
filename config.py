@@ -9,10 +9,16 @@ MINIAPP_DIR = os.getenv("BP_MINIAPP_DIR", "miniapp")
 
 HMAC_SECRET = os.getenv("BP_HMAC_SECRET", "")
 ADMIN_IDS = {int(x.strip()) for x in os.getenv("BP_ADMIN_IDS", "").split(",") if x.strip()}
-CORS_ORIGIN = os.getenv("BP_CORS_ORIGIN", "*")
+CORS_ORIGIN = os.getenv("BP_CORS_ORIGIN", "https://blockpulse.ru")
 RETENTION_DAYS = int(os.getenv("BP_RETENTION_DAYS", "30"))
 WEBAPP_URL = os.getenv("BP_WEBAPP_URL", "")
 TG_API_URL = os.getenv("BP_TG_API_URL", "")
+
+TRUSTED_PROXIES = set(
+    x.strip() for x in os.getenv("BP_TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if x.strip()
+)
+
+MAX_PROVIDER_TARGETS = int(os.getenv("BP_MAX_PROVIDER_TARGETS", "50"))
 
 TEST_TARGETS = [
     {
@@ -39,6 +45,9 @@ VALID_TARGETS = {t["id"] for t in TEST_TARGETS}
 
 MAX_PROBE_RESULTS = 20
 
-GEOIP_URL = "http://ip-api.com/json/{}?fields=status,regionName,city,isp,query&lang=ru"
+GEOIP_URL = os.getenv(
+    "BP_GEOIP_URL",
+    "https://ipwho.is/{}",
+)
 
 PROBE_INTERVAL = int(os.getenv("BP_PROBE_INTERVAL", "300"))

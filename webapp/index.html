@@ -3,12 +3,147 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BlockPulse — мониторинг блокировок VPN</title>
-    <meta name="description" content="Crowdsourced мониторинг блокировок VPN-протоколов в РФ. Карта работоспособности VLESS, XHTTP, Hysteria2 по регионам в реальном времени." />
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+
+    <!-- Primary SEO -->
+    <title>BlockPulse — карта блокировок VPN в России в реальном времени</title>
+    <meta name="description" content="Какой VPN работает в твоём городе? Интерактивная карта блокировок VLESS, XHTTP, Hysteria2 по регионам РФ. Данные обновляются каждые 5 минут. Open source." />
+    <meta name="keywords" content="VPN блокировки, ТСПУ, карта блокировок, VPN Россия, VLESS заблокирован, XHTTP, Hysteria2, проверить VPN, мониторинг VPN, обход блокировок, DPI, Роскомнадзор, VPN не работает, какой VPN работает, VPN 2026, блокировка VPN по регионам, проверка VPN протоколов" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large" />
+    <meta name="author" content="BlockPulse" />
+    <link rel="canonical" href="https://blockpulse.ru/" />
+    <meta name="theme-color" content="#3B82F6" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://blockpulse.ru/" />
+    <meta property="og:title" content="BlockPulse — какой VPN работает в твоём регионе?" />
+    <meta property="og:description" content="Интерактивная карта блокировок VPN-протоколов по регионам РФ. VLESS, XHTTP, Hysteria2 — проверь доступность в реальном времени." />
+    <meta property="og:site_name" content="BlockPulse" />
+    <meta property="og:locale" content="ru_RU" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BlockPulse — карта блокировок VPN в РФ" />
+    <meta name="twitter:description" content="Crowdsourced мониторинг VPN. Какие протоколы работают, а какие заблокированы ТСПУ — по каждому региону." />
+
+    <!-- Structured Data: WebSite -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "BlockPulse",
+      "alternateName": "Блокпульс",
+      "url": "https://blockpulse.ru",
+      "description": "Crowdsourced мониторинг блокировок VPN-протоколов по регионам Российской Федерации",
+      "inLanguage": "ru",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://blockpulse.ru/map?region={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <!-- Structured Data: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "BlockPulse",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Windows, macOS, Linux",
+      "url": "https://blockpulse.ru",
+      "description": "Open-source инструмент мониторинга блокировок VPN-протоколов (VLESS, XHTTP, Hysteria2) по регионам России. Crowdsourced данные от реальных пользователей.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "RUB"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "BlockPulse",
+        "url": "https://github.com/by-sonic/BlockPulse"
+      }
+    }
+    </script>
+
+    <!-- Structured Data: FAQPage — поднимает в поиске как rich snippet -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Какой VPN работает в России в 2026 году?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "По данным BlockPulse, XHTTP (SplitHTTP) остаётся наиболее стабильным протоколом в большинстве регионов РФ. VLESS Reality заблокирован в ряде областей. Hysteria2 (UDP) работает нестабильно. Актуальные данные по каждому региону — на интерактивной карте blockpulse.ru."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Как проверить, заблокирован ли VPN в моём городе?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Запустите одну команду: curl -sL https://blockpulse.ru/probe/install.sh | bash (Linux/macOS) или irm https://blockpulse.ru/probe/install.ps1 | iex (Windows). Скрипт за 30 секунд проверит доступность 5 VPN-протоколов с вашего IP и покажет результат. Данные анонимно попадают на карту."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Почему VPN перестал работать?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "С 2025 года ТСПУ (технические средства противодействия угрозам) блокируют VPN-протоколы через DPI-анализ трафика. Блокировки различаются по регионам и провайдерам. BlockPulse показывает актуальную картину по каждому региону в реальном времени."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "VLESS заблокирован в России?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "VLESS Reality заблокирован в части регионов РФ с конца 2025 года. Блокировка не тотальная — в некоторых городах и у некоторых провайдеров он продолжает работать. Проверьте статус в вашем регионе на карте blockpulse.ru."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Что такое XHTTP и почему он работает?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "XHTTP (SplitHTTP) — транспорт в Xray-core, который разбивает VPN-трафик на обычные HTTP-запросы. ТСПУ пока не научилось эффективно детектировать этот паттерн, поэтому XHTTP остаётся рабочим в большинстве регионов."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+
+    <!-- Preconnects -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
   </head>
   <body>
     <div id="root"></div>
+    <!-- Noscript fallback for SEO crawlers -->
+    <noscript>
+      <style>body{background:#050508;color:#e0e2ef;font-family:system-ui;padding:2rem}</style>
+      <h1>BlockPulse — мониторинг блокировок VPN в России</h1>
+      <p>Интерактивная карта показывает, какие VPN-протоколы (VLESS, XHTTP, Hysteria2) работают в каждом регионе РФ.</p>
+      <h2>Как проверить VPN в своём регионе</h2>
+      <p>Linux/macOS: <code>curl -sL https://blockpulse.ru/probe/install.sh | bash</code></p>
+      <p>Windows: <code>irm https://blockpulse.ru/probe/install.ps1 | iex</code></p>
+      <h2>Тестируемые протоколы</h2>
+      <ul>
+        <li>VLESS Reality — TCP:443, маскировка под HTTPS</li>
+        <li>XHTTP Reality — 3 варианта на разных портах/SNI</li>
+        <li>Hysteria2 — UDP, QUIC-based</li>
+      </ul>
+      <p><a href="https://t.me/vpnstatuschecker_bot">Telegram-бот</a> | <a href="https://github.com/by-sonic/BlockPulse">GitHub</a></p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

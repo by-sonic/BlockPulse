@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Terminal, Apple, Monitor, Copy, Check, ChevronDown, Shield, HelpCircle, Zap, ExternalLink } from 'lucide-react';
 
@@ -12,6 +12,10 @@ const PLATFORMS: { id: Platform; label: string; icon: typeof Terminal }[] = [
 
 export function ContributePage() {
   const [platform, setPlatform] = useState<Platform>('linux');
+
+  useEffect(() => {
+    document.title = 'Проверить VPN в своём регионе — BlockPulse';
+  }, []);
   const base = typeof window !== 'undefined' ? window.location.origin : '';
 
   const oneLiners: Record<Platform, string> = {
