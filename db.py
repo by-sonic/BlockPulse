@@ -120,6 +120,23 @@ async def insert_probe_batch(rows: list[dict]):
 
 async def get_pulse(hours: int = 1) -> list[dict]:
     db = await get_db()
+    if hours <= 0:
+        # All-time: no time filter
+        async with db.execute(
+            "SELECT region, protocol, SUM(total) as total, SUM(ok) as ok, "
+            "  ROUND(SUM(avg_ms * ok) / MAX(SUM(ok), 1)) as avg_ms, "
+            "  SUM(sources) as sources "
+            "FROM ("
+            "  SELECT region, protocol, COUNT(*) as total, SUM(success) as ok, "
+            "    AVG(CASE WHEN success THEN latency_ms END) as avg_ms, "
+            "    COUNT(DISTINCT source_ip) as sources "
+            "  FROM probes GROUP BY region, protocol "
+            "  UNION ALL "
+            "  SELECT region, protocol, total, ok, avg_ms, sources FROM probe_hourly "
+            ") GROUP BY region, protocol ORDER BY region, protocol",
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
     since = time.time() - hours * 3600
     async with db.execute(
         "SELECT region, protocol, SUM(total) as total, SUM(ok) as ok, "

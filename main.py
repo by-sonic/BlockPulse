@@ -841,7 +841,8 @@ async def h_whoami(request: web.Request):
 
 
 async def h_pulse(request: web.Request):
-    hours = _safe_int(request.query.get("hours", "1"), default=1, lo=1, hi=168)
+    raw = request.query.get("hours", "1")
+    hours = _safe_int(raw, default=1, lo=0, hi=168)
     pulse = await db.get_pulse(hours)
     stats = await db.get_stats()
     return web.json_response({"pulse": pulse, "stats": stats, "window_hours": hours})

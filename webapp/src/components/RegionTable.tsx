@@ -9,6 +9,7 @@ import { api } from '../api';
 
 interface Props {
   pulse: PulseRow[];
+  currentPulse?: PulseRow[];
 }
 
 type SortKey = 'region' | 'rate' | 'sources';
@@ -20,16 +21,25 @@ interface RegionAgg {
   protocols: Record<string, { rate: number; avg_ms: number | null }>;
 }
 
-export function RegionTable({ pulse }: Props) {
+export function RegionTable({ pulse, currentPulse }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('region');
   const [sortAsc, setSortAsc] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<any[] | null>(null);
 
+  const activeRegions = useMemo(() => {
+    const s = new Set<string>();
+    for (const row of (currentPulse || [])) {
+      s.add(normalizeRegion(row.region || ''));
+    }
+    return s;
+  }, [currentPulse]);
+
   const regions = useMemo(() => {
     const map: Record<string, RegionAgg> = {};
     for (const row of pulse) {
       const r = normalizeRegion(row.region || '?');
+      if (!r || r === '?') continue;
       if (!map[r]) map[r] = { region: r, rate: 0, sources: 0, protocols: {} };
       const rate = row.total > 0 ? row.ok / row.total : 0;
       map[r].protocols[row.protocol] = { rate, avg_ms: row.avg_ms };
@@ -116,7 +126,7 @@ export function RegionTable({ pulse }: Props) {
               <motion.tr
                 key={r.region}
                 layout
-                className="border-b border-border last:border-b-0 cursor-pointer hover:bg-cyan/[0.02] transition-colors"
+                className={`border-b border-border last:border-b-0 cursor-pointer hover:bg-cyan/[0.02] transition-colors ${!activeRegions.has(r.region) ? 'opacity-50' : ''}`}
                 onClick={() => toggleExpand(r.region)}
               >
                 <td className="px-4 py-3">
@@ -128,6 +138,9 @@ export function RegionTable({ pulse }: Props) {
                       <ChevronDown size={14} className="text-text-muted" />
                     </motion.div>
                     <span className="font-medium">{r.region}</span>
+                    {!activeRegions.has(r.region) && (
+                      <span className="text-[9px] font-mono text-text-muted border border-border rounded px-1">архив</span>
+                    )}
                   </div>
                 </td>
                 {PROTO_ORDER.map(proto => {

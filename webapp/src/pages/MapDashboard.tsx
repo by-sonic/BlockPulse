@@ -11,6 +11,7 @@ import { Activity, Users, MapPin } from 'lucide-react';
 
 export function MapDashboard() {
   const { data: pulseData } = usePulse(1, 60_000);
+  const { data: allTimeData } = usePulse(0, 300_000);
   const stats = useStats(60_000);
   const [timeline, setTimeline] = useState<TimelineBucket[]>([]);
   const [, setSelectedRegion] = useState<string | null>(null);
@@ -25,9 +26,11 @@ export function MapDashboard() {
   }, []);
 
   const pulse = pulseData?.pulse || [];
+  const allTimePulse = allTimeData?.pulse || [];
+
   const visibleRegionCount = useMemo(
-    () => new Set(pulse.map(p => normalizeRegion(p.region || '')).filter(Boolean)).size,
-    [pulse],
+    () => new Set(allTimePulse.map(p => normalizeRegion(p.region || '')).filter(Boolean)).size,
+    [allTimePulse],
   );
 
   return (
@@ -84,7 +87,7 @@ export function MapDashboard() {
         className="mb-8"
       >
         <SectionTitle title="Регионы" badge={`${visibleRegionCount}`} />
-        <RegionTable pulse={pulse} />
+        <RegionTable pulse={allTimePulse} currentPulse={pulse} />
       </motion.section>
     </div>
   );
