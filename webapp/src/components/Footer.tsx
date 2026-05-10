@@ -20,12 +20,12 @@ export function Footer() {
           </div>
 
           <a
-            href="https://t.me/bysonicvpn_bot"
+            href="https://t.me/rosevpnru_bot"
             target="_blank"
             rel="noopener"
             className="text-xs text-text-muted hover:text-blue transition-colors cursor-pointer"
           >
-            VPN от SonicVPN
+            VPN от RoseVPN
           </a>
         </div>
       </div>

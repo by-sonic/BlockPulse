@@ -4,7 +4,7 @@ import { Shield, ArrowRight, Zap } from 'lucide-react';
 export function VpnBanner() {
   return (
     <motion.a
-      href="https://t.me/bysonicvpn_bot"
+      href="https://t.me/rosevpnru_bot"
       target="_blank"
       rel="noopener"
       initial={{ opacity: 0, y: 16 }}

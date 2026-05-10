@@ -355,8 +355,8 @@ async def cmd_start(msg: Message):
             callback_data="bp_help",
         )],
         [InlineKeyboardButton(
-            text="\U0001f6e1 SonicVPN \u2014 \u0431\u044b\u0441\u0442\u0440\u044b\u0439 VPN",
-            url="https://t.me/bysonicvpn_bot",
+            text="\U0001f6e1 RoseVPN \u2014 \u0431\u044b\u0441\u0442\u0440\u044b\u0439 VPN",
+            url="https://t.me/rosevpnru_bot",
         )],
     ])
     await msg.answer(
@@ -601,8 +601,8 @@ async def cb_home(cb: CallbackQuery):
             callback_data="bp_help",
         )],
         [InlineKeyboardButton(
-            text="\U0001f6e1 SonicVPN \u2014 \u0431\u044b\u0441\u0442\u0440\u044b\u0439 VPN",
-            url="https://t.me/bysonicvpn_bot",
+            text="\U0001f6e1 RoseVPN \u2014 \u0431\u044b\u0441\u0442\u0440\u044b\u0439 VPN",
+            url="https://t.me/rosevpnru_bot",
         )],
     ])
     await cb.message.edit_text(
